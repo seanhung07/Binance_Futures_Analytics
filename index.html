@@ -283,13 +283,23 @@
 
         .analysis-dashboard {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 30px;
             margin-bottom: 30px;
         }
 
+        .kline-panel {
+            grid-column: 1 / -1;
+        }
+
+        .heatmap-grid-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
         @media (max-width: 1024px) {
-            .analysis-dashboard {
+            .heatmap-grid-container {
                 grid-template-columns: 1fr;
                 gap: 20px;
             }
@@ -335,10 +345,20 @@
             background: var(--accent-red);
         }
 
+        .chart-indicator.kline {
+            background: var(--accent-gold);
+        }
+
         .chart-container {
             position: relative;
             width: 100%;
             height: 400px;
+        }
+
+        .kline-chart-container {
+            position: relative;
+            width: 100%;
+            height: 450px;
         }
 
         .custom-heatmap {
@@ -649,26 +669,49 @@
         </div>
 
         <div id="analysisDashboard" class="analysis-dashboard" style="display: none;">
-            <div class="chart-panel">
+            <!-- Kline Chart Panel -->
+            <div class="chart-panel kline-panel">
                 <div class="chart-header">
                     <div class="chart-title">
-                        <div class="chart-indicator high"></div>
-                        Daily High Time Distribution
+                        <div class="chart-indicator kline"></div>
+                        Price Movement (Kline Chart)
                     </div>
                 </div>
-                <div class="chart-container">
-                    <canvas id="highChart"></canvas>
+                <div class="kline-chart-container">
+                    <div id="tradingview_chart" class="tradingview-widget-container" style="height:100%;width:100%">
+                        <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
+                        <div class="tradingview-widget-copyright">
+                            <a href="https://www.tradingview.com/" rel="noopener nofollow" target="_blank">
+                                <span style="color: #848e9c; font-size: 11px;">Track all markets on TradingView</span>
+                            </a>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="chart-panel">
-                <div class="chart-header">
-                    <div class="chart-title">
-                        <div class="chart-indicator low"></div>
-                        Daily Low Time Distribution
+            
+            <!-- Heatmap Panels -->
+            <div class="heatmap-grid-container">
+                <div class="chart-panel">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <div class="chart-indicator high"></div>
+                            Daily High Time Distribution
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="highChart"></canvas>
                     </div>
                 </div>
-                <div class="chart-container">
-                    <canvas id="lowChart"></canvas>
+                <div class="chart-panel">
+                    <div class="chart-header">
+                        <div class="chart-title">
+                            <div class="chart-indicator low"></div>
+                            Daily Low Time Distribution
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="lowChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -689,7 +732,8 @@
                 this.symbols = [];
                 this.analysisCount = 0;
                 this.charts = {};
-                this.currentAnalysisId = 0; // Add unique ID for each analysis
+                this.currentAnalysisId = 0;
+                this.currentKlineData = null;
                 this.init();
             }
 
@@ -839,6 +883,57 @@
                 }
             }
 
+            createTradingViewChart(symbol) {
+                // Remove existing TradingView widget if it exists
+                const existingWidget = document.querySelector('#tradingview_chart .tradingview-widget-container__widget');
+                if (existingWidget) {
+                    existingWidget.innerHTML = '';
+                }
+
+                // Convert symbol to TradingView format (BINANCE:BTCUSDT.P for perpetual futures)
+                const tvSymbol = `BINANCE:${symbol}.P`;
+                
+                // Create new script element for TradingView widget
+                const script = document.createElement('script');
+                script.type = 'text/javascript';
+                script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+                script.async = true;
+                
+                // TradingView widget configuration
+                const config = {
+                    autosize: true,
+                    symbol: tvSymbol,
+                    interval: "15",
+                    timezone: "Etc/UTC",
+                    theme: "dark",
+                    style: "1",
+                    locale: "en",
+                    hide_top_toolbar: false,
+                    hide_legend: false,
+                    range: "1D",
+                    allow_symbol_change: false,
+                    save_image: false,
+                    calendar: false,
+                    support_host: "https://www.tradingview.com",
+                    backgroundColor: "#161a25",
+                    gridColor: "#2b3139",
+                    studies: [
+                        "Volume@tv-basicstudies"
+                    ]
+                };
+                
+                script.innerHTML = JSON.stringify(config);
+                
+                // Append script to the widget container
+                const widgetContainer = document.querySelector('#tradingview_chart .tradingview-widget-container__widget');
+                if (widgetContainer) {
+                    widgetContainer.appendChild(script);
+                    console.log(`TradingView chart created for ${tvSymbol}`);
+                } else {
+                    console.error('TradingView widget container not found');
+                }
+            }
+
             analyzeDailyExtremes(data) {
                 if (data.length === 0) {
                     throw new Error('Insufficient data for analysis');
@@ -951,7 +1046,7 @@
                 console.log('Force recreating chart containers...');
                 
                 // Get the chart panels
-                const chartPanels = document.querySelectorAll('.chart-container');
+                const chartPanels = document.querySelectorAll('.heatmap-grid-container .chart-container');
                 
                 if (chartPanels.length >= 2) {
                     // Recreate high chart
@@ -1109,7 +1204,9 @@
                     topHighTimes: [],
                     topLowTimes: [],
                     avgHighPrice: 0,
-                    avgLowPrice: 0
+                    avgLowPrice: 0,
+                    dailyHighsData: dailyHighs,
+                    dailyLowsData: dailyLows
                 };
 
                 // Calculate daily high time distribution
@@ -1171,7 +1268,11 @@
                 // Wait a moment for dashboard to be fully rendered
                 await new Promise(resolve => setTimeout(resolve, 200));
                 
-                // Force recreate chart containers
+                // Create TradingView chart first
+                console.log('Creating TradingView chart...');
+                this.createTradingViewChart(stats.symbol);
+                
+                // Force recreate chart containers for heatmaps
                 const { highChart, lowChart } = await this.forceRecreateChartContainers();
                 
                 if (!highChart || !lowChart) {
@@ -1319,6 +1420,9 @@
                 
                 const limit = Math.min(days * 96, 1500);
                 const klineData = await analyzer.getKlineData(finalSymbol, '15m', limit);
+                
+                // Store kline data for chart creation
+                analyzer.currentKlineData = klineData;
                 
                 analyzer.showStatus('Analyzing daily price extremes...', 'loading', 'fas fa-spinner fa-spin');
                 const { dailyHighs, dailyLows } = analyzer.analyzeDailyExtremes(klineData);
